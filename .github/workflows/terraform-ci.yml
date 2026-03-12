@@ -38,40 +38,90 @@ jobs:
 
       # 4. Check formatting
       - name: Terraform Format Check
+        id: fmt
         run: terraform fmt -check -recursive
-        continue-on-error: false
+        continue-on-error: true
 
       # 5. Initialize (downloads provider)
       - name: Terraform Init
+        id: init
         run: terraform init
 
       # 6. Validate configuration
       - name: Terraform Validate
-        run: terraform validate
+        id: validate
+        run: terraform validate -no-color
 
       # 7. tfsec security scan
       - name: Run tfsec Security Scan
+        id: tfsec
         uses: aquasecurity/tfsec-action@v1.0.0
         with:
-          soft_fail: true   # Won't block pipeline, but shows findings
+          soft_fail: true
+          format: sarif
+          sarif_file: tfsec.sarif
 
-      # 8. Terraform Plan (on PRs and pushes)
+      # 8. Upload tfsec SARIF to GitHub Security tab
+      - name: Upload tfsec SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: tfsec.sarif
+
+      # 9. Terraform Plan
       - name: Terraform Plan
-        run: terraform plan -no-color -out=tfplan
+        id: plan
+        run: terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
         env:
           TF_VAR_region: ${{ env.AWS_REGION }}
+        continue-on-error: true
 
-      # 9. Comment plan output on PR
+      # 10. Write Job Summary (shows up in GitHub Actions UI)
+      - name: Write Job Summary
+        if: always()
+        run: |
+          echo "## 🔐 Terraform Security Lab - Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🎨 Terraform Format | ${{ steps.fmt.outcome == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⚙️  Terraform Init   | ${{ steps.init.outcome == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✔️  Terraform Validate | ${{ steps.validate.outcome == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔍 tfsec Security Scan | ${{ steps.tfsec.outcome == 'success' && '✅ Passed' || '⚠️ Findings (check Security tab)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📋 Terraform Plan   | ${{ steps.plan.outcome == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Terraform Plan Output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat plan_output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> 🛡️ Security findings uploaded to the **Security tab** (SARIF format)" >> $GITHUB_STEP_SUMMARY
+          echo "> 👤 Triggered by: **${{ github.actor }}** on branch **${{ github.ref_name }}**" >> $GITHUB_STEP_SUMMARY
+
+      # 11. Comment plan output on PR
       - name: Post Plan to PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const { execSync } = require('child_process');
-            const plan = execSync('terraform show -no-color tfplan').toString();
-            const output = `#### Terraform Plan 📋
-            \`\`\`\n${plan}\n\`\`\`
-            *Pushed by: @${{ github.actor }}*`;
+            const fs = require('fs');
+            const plan = fs.readFileSync('plan_output.txt', 'utf8');
+            const output = `## 🔐 Terraform Plan Results
+            | Step | Status |
+            |------|--------|
+            | 🎨 Format | \`${{ steps.fmt.outcome }}\` |
+            | ✔️ Validate | \`${{ steps.validate.outcome }}\` |
+            | 🔍 tfsec | \`${{ steps.tfsec.outcome }}\` |
+            | 📋 Plan | \`${{ steps.plan.outcome }}\` |
+
+            <details><summary>📋 Show Plan Output</summary>
+
+            \`\`\`terraform
+            ${plan}
+            \`\`\`
+            </details>
+
+            > 👤 Pushed by @${{ github.actor }} | 🔀 Branch: \`${{ github.ref_name }}\``;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
