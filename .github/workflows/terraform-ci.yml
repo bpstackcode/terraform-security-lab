@@ -64,17 +64,27 @@ jobs:
       # 8. Upload tfsec SARIF to GitHub Security tab
       - name: Upload tfsec SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('tfsec.sarif') != ''
         with:
           sarif_file: tfsec.sarif
 
       # 9. Terraform Plan
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+          exit ${PIPESTATUS[0]}
         env:
           TF_VAR_region: ${{ env.AWS_REGION }}
         continue-on-error: true
+
+      # 9b. Ensure plan_output.txt exists even if plan failed
+      - name: Ensure plan output exists
+        if: always()
+        run: |
+          if [ ! -f plan_output.txt ]; then
+            echo "Terraform plan did not produce output." > plan_output.txt
+          fi
 
       # 10. Write Job Summary (shows up in GitHub Actions UI)
       - name: Write Job Summary
@@ -128,3 +138,4 @@ jobs:
               repo: context.repo.repo,
               body: output
             });
+            
