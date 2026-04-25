@@ -12,7 +12,7 @@
 
 Manual infrastructure deployments create two compounding problems for organizations: **inconsistency** and **invisible risk**. When engineers click through the AWS console to provision resources, there’s no audit trail, no repeatable process, and no guarantee that security configurations are applied correctly every time.
 
-This project eliminates both problems. Every infrastructure change runs through an automated pipeline that validates, scans for misconfigurations, and produces a documented plan before anything is applied — making infrastructure changes reviewable, auditable, and secure by default.
+This project eliminates both problems. Every infrastructure change runs through an automated pipeline that validates, scans for misconfigurations, and produces a documented plan before anything is applied, making infrastructure changes reviewable, auditable, and secure by default.
 
 -----
 
