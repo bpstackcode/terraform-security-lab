@@ -1,16 +1,34 @@
 # 🔐 Terraform AWS Security Lab
 
-![Terraform](https://img.shields.io/badge/Terraform-1.7.0-7B42BC?style=for-the-badge&logo=terraform)
-![AWS](https://img.shields.io/badge/AWS-us--east--1-FF9900?style=for-the-badge&logo=amazonaws)
-![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions)
-![tfsec](https://img.shields.io/badge/Security-tfsec-red?style=for-the-badge)
-![S3 Backend](https://img.shields.io/badge/State-S3%20Remote%20Backend-569A31?style=for-the-badge&logo=amazons3)
-
-A hands-on cloud security lab provisioning AWS infrastructure using Terraform, with a fully automated CI/CD pipeline featuring security scanning, infrastructure validation, and live plan output reporting.
+[![Terraform](https://img.shields.io/badge/Terraform-1.7.0-7B42BC?style=for-the-badge&logo=terraform)](https://terraform.io)
+[![AWS](https://img.shields.io/badge/AWS-us--east--1-FF9900?style=for-the-badge&logo=amazonwebservices)](https://aws.amazon.com)
+[![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions)](https://github.com/features/actions)
+[![tfsec](https://img.shields.io/badge/Security-tfsec-red?style=for-the-badge)](https://github.com/aquasecurity/tfsec)
+[![S3 Backend](https://img.shields.io/badge/State-S3_Remote_Backend-569A31?style=for-the-badge&logo=amazons3)](https://developer.hashicorp.com/terraform/language/settings/backends/s3)
 
 -----
 
-## 🏗️ Architecture
+## Why This Project Exists
+
+Manual infrastructure deployments create two compounding problems for organizations: **inconsistency** and **invisible risk**. When engineers click through the AWS console to provision resources, there’s no audit trail, no repeatable process, and no guarantee that security configurations are applied correctly every time.
+
+This project eliminates both problems. Every infrastructure change runs through an automated pipeline that validates, scans for misconfigurations, and produces a documented plan before anything is applied — making infrastructure changes reviewable, auditable, and secure by default.
+
+-----
+
+## Business Impact
+
+|Problem                                                        |How This Solves It                                                           |
+|---------------------------------------------------------------|-----------------------------------------------------------------------------|
+|Misconfigured infrastructure is the #1 source of cloud breaches|Automated tfsec scanning catches vulnerabilities before they reach production|
+|Manual deployments create inconsistency across environments    |IaC ensures every deployment is identical and version-controlled             |
+|No visibility into who changed what, and when                  |Git history + remote state creates a full audit trail                        |
+|Concurrent deployments corrupt state and cause outages         |DynamoDB state locking prevents race conditions                              |
+|Sensitive state files leak credentials when stored locally     |Encrypted S3 backend keeps state off developer machines entirely             |
+
+-----
+
+## Architecture
 
 ```
 VPC (10.0.0.0/16)
@@ -23,96 +41,107 @@ VPC (10.0.0.0/16)
 
 -----
 
-## 🚀 CI/CD Pipeline
+## CI/CD Pipeline
 
-Every push to `main` automatically triggers the full pipeline:
+Every push to `main` triggers the full pipeline automatically — no human gate required:
 
-|Step         |Tool                |Purpose                                    |
-|-------------|--------------------|-------------------------------------------|
-|Format Check |`terraform fmt`     |Enforces code style standards              |
-|Initialize   |`terraform init`    |Downloads AWS provider                     |
-|Validate     |`terraform validate`|Catches config errors before deploy        |
-|Security Scan|`tfsec`             |Detects misconfigurations & vulnerabilities|
-|Plan         |`terraform plan`    |Previews infrastructure changes safely     |
+|Step         |Tool                |Purpose                                                   |
+|-------------|--------------------|----------------------------------------------------------|
+|Format Check |`terraform fmt`     |Enforces code style — prevents reviewer debate on style   |
+|Initialize   |`terraform init`    |Downloads AWS provider, connects to remote state          |
+|Validate     |`terraform validate`|Catches config errors before they hit the pipeline        |
+|Security Scan|`tfsec`             |Detects misconfigurations mapped to CIS benchmarks        |
+|Plan         |`terraform plan`    |Documents exactly what will change — nothing is a surprise|
 
 
-> Security findings are uploaded to the **GitHub Security tab** in SARIF format for tracking and remediation.
+> Security findings are uploaded to the **GitHub Security tab** in SARIF format for centralized tracking and remediation workflow.
+
+**Design decision:** The pipeline runs plan-only — no auto-apply. This is intentional. In a production environment, a failed `apply` mid-deployment can leave infrastructure in a partial state. The plan gate ensures a human reviews the delta before any change is committed to production.
 
 -----
 
-## 🗄️ Remote State Management
+## Remote State Management
 
-Terraform state is stored remotely in AWS for team collaboration and safety:
+Terraform state is the source of truth for your infrastructure. Storing it locally is a liability — it gets lost, it holds sensitive values, and it breaks team workflows.
 
-|Resource                               |Purpose                                |
-|---------------------------------------|---------------------------------------|
-|S3 Bucket `bpstackcode-terraform-state`|Stores encrypted Terraform state file  |
-|DynamoDB Table `terraform-state-lock`  |Prevents concurrent state modifications|
+|Resource                               |Purpose                                          |
+|---------------------------------------|-------------------------------------------------|
+|S3 Bucket `bpstackcode-terraform-state`|Encrypted state storage with full version history|
+|DynamoDB Table `terraform-state-lock`  |State locking — prevents concurrent modifications|
 
-**Benefits:**
+**Security properties:**
 
 - State file encrypted at rest (AES-256)
-- Full version history of state changes
-- State locking prevents race conditions
-- No sensitive state data stored in Git
+- Full version history — any state can be rolled back
+- State locking prevents race conditions during concurrent pipelines
+- No state data stored in Git — no credential exposure
 
 -----
 
-## 🛠️ Tech Stack
+## Tech Stack
 
-- **Terraform** — Infrastructure as Code
-- **AWS** — VPC, Subnet, Internet Gateway, Security Groups, S3, DynamoDB
-- **GitHub Actions** — CI/CD automation
-- **tfsec** — Static security analysis for Terraform
-- **SARIF** — Security findings reporting (GitHub Security tab)
+|Layer                 |Technology                                           |
+|----------------------|-----------------------------------------------------|
+|Infrastructure as Code|Terraform 1.7.0                                      |
+|Cloud Provider        |AWS (VPC, Subnet, IGW, Security Groups, S3, DynamoDB)|
+|CI/CD                 |GitHub Actions                                       |
+|Security Scanning     |tfsec (SARIF output)                                 |
+|State Backend         |S3 + DynamoDB                                        |
 
 -----
 
-## 📁 Project Structure
+## Security Practices
+
+- **Least privilege IAM** — Dedicated `terraform-github-actions` user with scoped permissions only. No root credentials, no over-permissioned admin keys.
+- **No secrets in code** — Credentials injected via GitHub Actions secrets at runtime
+- **State encryption** — Remote state stored in S3 with server-side encryption enabled
+- **Gitignore hardened** — `.terraform/` and `*.tfstate` excluded; provider binaries never committed
+- **Security findings tracked** — tfsec output in SARIF format integrates directly with GitHub Security tab for remediation workflow
+- **Plan-only pipeline** — No auto-apply prevents unintended infrastructure changes from reaching production
+
+-----
+
+## Project Structure
 
 ```
 terraform-security-lab/
 ├── .github/
 │   └── workflows/
-│       └── terraform-ci.yml   # CI/CD pipeline
+│       └── terraform-ci.yml   # Full CI/CD pipeline definition
 ├── main.tf                    # Core infrastructure + S3 backend config
 ├── variables.tf               # Input variables
 ├── outputs.tf                 # Output values
-├── terraform.lock.hcl         # Provider version lock
+├── terraform.lock.hcl         # Provider version lock (reproducible builds)
 └── .gitignore                 # Excludes state & provider binaries
 ```
 
 -----
 
-## ⚙️ Setup & Usage
+## Local Setup
 
 ### Prerequisites
 
 - Terraform >= 1.7.0
-- AWS CLI configured
-- AWS account with appropriate IAM permissions
-- S3 bucket and DynamoDB table for remote state (see Remote State Management)
+- AWS CLI configured with appropriate credentials
+- S3 bucket and DynamoDB table provisioned for remote state
 
-### Local Development
+### Run It
 
 ```bash
-# Clone the repo
 git clone https://github.com/bpstackcode/terraform-security-lab.git
 cd terraform-security-lab
 
-# Initialize Terraform (connects to S3 backend)
+# Initialize — connects to S3 backend
 terraform init
 
-# Preview changes
+# Preview all changes before applying
 terraform plan
 
-# Apply infrastructure
+# Apply (run locally only — pipeline is plan-only)
 terraform apply
 ```
 
-### GitHub Actions Setup
-
-Add these secrets to your repository (**Settings → Secrets → Actions**):
+### GitHub Actions Secrets Required
 
 |Secret                 |Description        |
 |-----------------------|-------------------|
@@ -121,35 +150,9 @@ Add these secrets to your repository (**Settings → Secrets → Actions**):
 
 -----
 
-## 🔒 Security Practices
+## Key Engineering Concepts Demonstrated
 
-- Dedicated IAM user (`terraform-github-actions`) with scoped permissions — no root credentials
-- `.terraform/` and `*.tfstate` excluded from version control
-- Terraform state stored remotely in encrypted S3 with DynamoDB locking
-- Automated tfsec scanning on every push
-- Security findings tracked via GitHub Security tab (SARIF)
-- Terraform plan-only pipeline — no auto-apply to prevent unintended changes
-
------
-
-## 📌 Key Concepts Demonstrated
-
-- Infrastructure as Code (IaC) with Terraform
-- AWS networking fundamentals (VPC, subnets, IGW, security groups)
-- Remote state management with S3 backend and DynamoDB locking
-- CI/CD pipeline design with GitHub Actions
-- DevSecOps — security scanning integrated into the pipeline
-- IAM least privilege principles
-- GitOps workflow — infrastructure changes tracked via Git history
-
------
-
-## 👤 Author
-
-**Bryan Peterson**
-
-- GitHub: [@bpstackcode](https://github.com/bpstackcode)
-
------
-
-*Part of an ongoing cloud engineering & cybersecurity portfolio.*
+- Infrastructure as Code (IaC) — repeatable, version-controlled deployments
+- DevSecOps — security scanning embedded in the CI pipeline, not bolted on after
+- Remote state management — encrypted S3 backend with DynamoDB locking
+- Least privilege IAM — scoped service account,
